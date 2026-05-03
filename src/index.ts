@@ -9,7 +9,7 @@ import {
   fetchUnnotified,
   markNotified,
 } from "./db";
-import { notifyNewListings } from "./discord";
+import { postBatch, delayBetweenBatches, MAX_EMBEDS_PER_MSG } from "./discord";
 
 function buildQuery(env: Env): SearchQuery {
   return {
@@ -45,13 +45,22 @@ async function runScrape(env: Env): Promise<{ summary: string }> {
     if (!firstRun) {
       const unnotified = await fetchUnnotified(env.stagemarkt);
       if (unnotified.length > 0 && env.DISCORD_WEBHOOK_URL) {
-        await notifyNewListings(
-          env.DISCORD_WEBHOOK_URL,
-          unnotified,
-          parseInt(env.DISCORD_COLOR, 10) || 5793266,
-        );
-        await markNotified(env.stagemarkt, unnotified.map((l) => l.leerplaatsId), now);
-        notifiedCount = unnotified.length;
+        const color = parseInt(env.DISCORD_COLOR, 10) || 5793266;
+        for (let i = 0; i < unnotified.length; i += MAX_EMBEDS_PER_MSG) {
+          const batch = unnotified.slice(i, i + MAX_EMBEDS_PER_MSG);
+          await postBatch(env.DISCORD_WEBHOOK_URL, batch, color);
+          // Mark this batch immediately — if a later batch 429s and throws,
+          // we don't lose the work that already succeeded.
+          await markNotified(
+            env.stagemarkt,
+            batch.map((l) => l.leerplaatsId),
+            Math.floor(Date.now() / 1000),
+          );
+          notifiedCount += batch.length;
+          if (i + MAX_EMBEDS_PER_MSG < unnotified.length) {
+            await delayBetweenBatches();
+          }
+        }
       }
     }
 

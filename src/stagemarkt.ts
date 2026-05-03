@@ -34,6 +34,18 @@ export async function searchEducations(q: SearchQuery): Promise<SearchResponse> 
   return (await res.json()) as SearchResponse;
 }
 
-export function listingUrl(leerplaatsId: string): string {
-  return `https://stagemarkt.nl/stages/${leerplaatsId}`;
+export function listingUrl(leerplaatsId: string, titel: string | undefined | null): string {
+  const slug = slugify(titel ?? "");
+  return slug
+    ? `https://stagemarkt.nl/stages/${slug}_${leerplaatsId}`
+    : `https://stagemarkt.nl/stages/${leerplaatsId}`;
+}
+
+function slugify(s: string): string {
+  return s
+    .normalize("NFKD")             // strip accents (é → e + ́)
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")   // any non-alphanum → hyphen
+    .replace(/^-+|-+$/g, "");      // trim leading/trailing hyphens
 }

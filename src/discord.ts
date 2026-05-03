@@ -1,34 +1,64 @@
 import type { Listing } from "./types";
 import { listingUrl } from "./stagemarkt";
 
-// Discord allows up to 10 embeds per webhook message. Batch new listings.
-const MAX_EMBEDS_PER_MSG = 10;
+// Discord allows up to 10 embeds per webhook message.
+export const MAX_EMBEDS_PER_MSG = 10;
 
-export async function notifyNewListings(
+// Per-webhook rate limit is ~5 requests / 2 s. 500 ms between batches stays
+// well under that and means a backlog of 100 listings (10 batches) takes ~5 s.
+const INTER_BATCH_DELAY_MS = 500;
+
+const MAX_RETRY_429 = 3;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export async function postBatch(
   webhookUrl: string,
-  listings: Listing[],
+  batch: Listing[],
   color: number,
 ): Promise<void> {
-  for (let i = 0; i < listings.length; i += MAX_EMBEDS_PER_MSG) {
-    const batch = listings.slice(i, i + MAX_EMBEDS_PER_MSG);
-    const body = {
-      content:
-        batch.length === 1
-          ? "New stage gevonden:"
-          : `${batch.length} nieuwe stages gevonden:`,
-      embeds: batch.map((l) => buildEmbed(l, color)),
-    };
+  const body = {
+    content:
+      batch.length === 1
+        ? "New stage gevonden:"
+        : `${batch.length} nieuwe stages gevonden:`,
+    embeds: batch.map((l) => buildEmbed(l, color)),
+  };
+  const payload = JSON.stringify(body);
 
+  for (let attempt = 0; attempt <= MAX_RETRY_429; attempt++) {
     const res = await fetch(webhookUrl, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+      body: payload,
     });
 
-    if (!res.ok) {
-      throw new Error(`discord webhook ${res.status}: ${await res.text()}`);
+    if (res.ok) return;
+
+    if (res.status === 429 && attempt < MAX_RETRY_429) {
+      // Prefer Discord's structured retry_after (seconds, fractional) over the
+      // header — they agree, but the body is the canonical source.
+      const text = await res.text();
+      let waitMs = INTER_BATCH_DELAY_MS;
+      try {
+        const j = JSON.parse(text) as { retry_after?: number };
+        if (typeof j.retry_after === "number") {
+          waitMs = Math.ceil(j.retry_after * 1000) + 100;
+        }
+      } catch {
+        // fall through
+      }
+      console.warn(`discord 429, retrying in ${waitMs}ms (attempt ${attempt + 1})`);
+      await sleep(waitMs);
+      continue;
     }
+
+    throw new Error(`discord webhook ${res.status}: ${await res.text()}`);
   }
+}
+
+export async function delayBetweenBatches(): Promise<void> {
+  await sleep(INTER_BATCH_DELAY_MS);
 }
 
 function buildEmbed(l: Listing, color: number) {
@@ -48,7 +78,7 @@ function buildEmbed(l: Listing, color: number) {
 
   const embed: Record<string, unknown> = {
     title: title.length > 256 ? `${title.slice(0, 253)}...` : title,
-    url: listingUrl(l.leerplaatsId),
+    url: listingUrl(l.leerplaatsId, l.titel),
     color,
     fields,
     footer: { text: `leerplaatsId ${l.leerplaatsId}` },

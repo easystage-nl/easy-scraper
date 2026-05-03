@@ -9,6 +9,7 @@
     "db:init": "wrangler d1 execute stagemarkt --remote --file=./schema.sql",
     "db:init:local": "wrangler d1 execute stagemarkt --local --file=./schema.sql",
     "db:query": "wrangler d1 execute stagemarkt --remote --command",
+    "db:query:local": "wrangler d1 execute stagemarkt --local --command",
     "trigger:local": "curl -s 'http://localhost:8787/__scheduled?cron=*/10+*+*+*+*'"
   },
   "devDependencies": {
