@@ -1,0 +1,32 @@
+name = "easy-stage"
+main = "src/index.ts"
+compatibility_date = "2026-04-01"
+
+# Cron: poll every 10 min (matches the upstream Front-Door s-maxage=600).
+# Lower-bound cadence on Workers free is 1 min, but 10 is plenty here.
+[triggers]
+crons = ["*/10 * * * *"]
+
+# D1 — run once locally to create:
+#   wrangler d1 create stagemarkt
+# then paste the returned database_id below.
+[[d1_databases]]
+binding = "stagemarkt"
+database_name = "stagemarkt"
+database_id = "5018a4a1-39ab-49b0-ac33-549f5b766031"
+
+# Default search query. Edit these and redeploy to track a different one.
+# Run `pnpm/npm run db:query "DELETE FROM listings"` first if you want a clean slate.
+[vars]
+SITE_ID         = "STAGEMARKT"
+NIVEAU          = "4"
+TYPE            = "1"
+RANGE_KM        = "1000"
+CREBOCODE       = "25998"          # Software developer
+PLAATS_POSTCODE = "Warnsveld"
+BUITENLAND      = "false"
+# Discord embed colour (decimal). 0x5865F2 = blurple.
+DISCORD_COLOR   = "5793266"
+
+# Secrets (set via `wrangler secret put`):
+#   DISCORD_WEBHOOK_URL — full webhook URL incl. /api/webhooks/<id>/<token>
