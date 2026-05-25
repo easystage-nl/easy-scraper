@@ -104,12 +104,13 @@ export default {
     }
 
     if (url.pathname === "/listings") {
-      const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "100", 10), 1000);
+      const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "1000", 10), 5000);
       const onlyActive = url.searchParams.get("active") !== "false";
       const where = onlyActive ? "WHERE removed_at IS NULL" : "";
       const rows = await env.stagemarkt.prepare(
-        `SELECT leerplaats_id, titel, wervende_titel, org_naam, plaats, postcode,
-                leerweg, startdatum, lat, lon, first_seen_at, last_seen_at, removed_at
+        `SELECT leerplaats_id, titel, wervende_titel, org_naam, org_logo_url,
+                plaats, postcode, leerweg, startdatum, dagen_per_week,
+                lat, lon, first_seen_at, last_seen_at, removed_at
            FROM listings ${where}
            ORDER BY first_seen_at DESC
            LIMIT ?`,
@@ -124,13 +125,6 @@ export default {
         "SELECT * FROM scrape_runs ORDER BY started_at DESC LIMIT 50",
       ).all();
       return Response.json(rows.results ?? []);
-    }
-
-    if (url.pathname === "/" || url.pathname === "") {
-      return new Response(
-        "easy-stage scraper. Endpoints: POST /run, GET /listings, GET /runs",
-        { headers: { "content-type": "text/plain" } },
-      );
     }
 
     return new Response("not found", { status: 404 });

@@ -2,6 +2,21 @@ name = "easy-stage"
 main = "src/index.ts"
 compatibility_date = "2026-04-01"
 
+# Custom domain. The zone "easystage.nl" must already be added to this
+# Cloudflare account. `custom_domain = true` provisions the route and SSL
+# automatically on `wrangler deploy`.
+routes = [
+  { pattern = "easystage.nl", custom_domain = true },
+]
+
+# Bundled SPA — built by `npm run build:web` (vite) into ./web/dist.
+# Workers serves matching files first; the fetch handler runs for /listings,
+# /runs, /run, and any other path that isn't a built asset. SPA fallback
+# returns index.html so client-side routing keeps working.
+[assets]
+directory = "./web/dist"
+not_found_handling = "single-page-application"
+
 # Cron: poll every 10 min (matches the upstream Front-Door s-maxage=600).
 # Lower-bound cadence on Workers free is 1 min, but 10 is plenty here.
 [triggers]
