@@ -1,37 +1,25 @@
-name = "easy-stage"
+name = "easy-stage-api"
 main = "src/index.ts"
 compatibility_date = "2026-04-01"
 
-# Custom domain. The zone "easystage.nl" must already be added to this
-# Cloudflare account. `custom_domain = true` provisions the route and SSL
-# automatically on `wrangler deploy`.
+# JSON API served on its own subdomain. The "easystage.nl" zone must already be
+# in this Cloudflare account; `custom_domain = true` provisions the route + SSL.
+# The dashboard frontend is a separate worker (easy-dash repo) on easystage.nl.
 routes = [
-  { pattern = "easystage.nl", custom_domain = true },
+  { pattern = "api.easystage.nl", custom_domain = true },
 ]
 
-# Bundled SPA — built by `npm run build:web` (vite) into ./web/dist.
-# Workers serves matching files first; the fetch handler runs for /listings,
-# /runs, /run, and any other path that isn't a built asset. SPA fallback
-# returns index.html so client-side routing keeps working.
-[assets]
-directory = "./web/dist"
-not_found_handling = "single-page-application"
-
-# Cron: poll every 10 min (matches the upstream Front-Door s-maxage=600).
-# Lower-bound cadence on Workers free is 1 min, but 10 is plenty here.
+# Poll every 10 min (matches the upstream Front-Door s-maxage=600).
 [triggers]
 crons = ["*/10 * * * *"]
 
-# D1 — run once locally to create:
-#   wrangler d1 create stagemarkt
-# then paste the returned database_id below.
+# D1 — create once with `wrangler d1 create stagemarkt`, then paste the id here.
 [[d1_databases]]
 binding = "stagemarkt"
 database_name = "stagemarkt"
 database_id = "5018a4a1-39ab-49b0-ac33-549f5b766031"
 
-# Default search query. Edit these and redeploy to track a different one.
-# Run `pnpm/npm run db:query "DELETE FROM listings"` first if you want a clean slate.
+# Search query + runtime config. Edit and redeploy to track a different query.
 [vars]
 SITE_ID         = "STAGEMARKT"
 NIVEAU          = "4"
@@ -40,8 +28,8 @@ RANGE_KM        = "1000"
 CREBOCODE       = "25998"          # Software developer
 PLAATS_POSTCODE = "Warnsveld"
 BUITENLAND      = "false"
-# Discord embed colour (decimal). 0x5865F2 = blurple.
-DISCORD_COLOR   = "5793266"
+DISCORD_COLOR   = "5793266"        # decimal; 0x5865F2 = blurple
+CORS_ORIGIN     = "https://easystage.nl"
 
 # Secrets (set via `wrangler secret put`):
 #   DISCORD_WEBHOOK_URL — full webhook URL incl. /api/webhooks/<id>/<token>

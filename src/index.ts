@@ -94,13 +94,31 @@ export default {
     ctx.waitUntil(runScrape(env).then(() => undefined));
   },
 
-  // HTTP fetch handler — manual trigger / debug / future viz endpoints.
+  // HTTP fetch handler — JSON API consumed by the easy-dash SPA (separate
+  // origin), plus the manual /run trigger.
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
 
+    // CORS: the dashboard is served from a different origin. Allow the
+    // configured origin (CORS_ORIGIN), defaulting to "*" for the public
+    // read-only endpoints.
+    const cors = {
+      "Access-Control-Allow-Origin": env.CORS_ORIGIN ?? "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    };
+    const json = (body: unknown) =>
+      new Response(JSON.stringify(body), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+
+    if (req.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: cors });
+    }
+
     if (url.pathname === "/run" && req.method === "POST") {
       const result = await runScrape(env);
-      return Response.json(result);
+      return json(result);
     }
 
     if (url.pathname === "/listings") {
@@ -117,16 +135,16 @@ export default {
       )
         .bind(limit)
         .all();
-      return Response.json(rows.results ?? []);
+      return json(rows.results ?? []);
     }
 
     if (url.pathname === "/runs") {
       const rows = await env.stagemarkt.prepare(
         "SELECT * FROM scrape_runs ORDER BY started_at DESC LIMIT 50",
       ).all();
-      return Response.json(rows.results ?? []);
+      return json(rows.results ?? []);
     }
 
-    return new Response("not found", { status: 404 });
+    return new Response("not found", { status: 404, headers: cors });
   },
 };

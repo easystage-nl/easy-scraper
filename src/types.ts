@@ -10,6 +10,9 @@ export interface Env {
   BUITENLAND: string;
   DISCORD_COLOR: string;
 
+  // Optional: restrict CORS to the dashboard origin. Defaults to "*".
+  CORS_ORIGIN?: string;
+
   DISCORD_WEBHOOK_URL: string;
 }
 
