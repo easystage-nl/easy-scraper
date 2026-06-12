@@ -1,7 +1,7 @@
 # easy-scraper
 
 Cloudflare Worker that polls **stagemarkt.nl** every 10 min for a fixed search
-query, stores listings in D1, and pings a **Discord webhook** on new ones.
+query and stores listings in D1.
 
 The JSON API is deployed to `api.easystage.nl`. The dashboard frontend is a
 separate worker on `easystage.nl` — see [`easy-dash`](https://github.com/easystage-nl/easy-dash).
@@ -9,14 +9,17 @@ Reverse-engineered API notes: [`reversal/README.md`](reversal/README.md).
 
 ## Endpoints
 
-- `POST /run` — trigger a scrape now
-- `GET /listings?active=true&limit=100` — listings as JSON
-- `GET /runs` — last 50 scrape runs
+- `GET /listings` — filtered, paginated listings → `{ items, total }`.
+  Params: `status` (active·removed·all), `q`, `plaats`, `leerweg`,
+  `sort` (newest·recent·title), `limit` (≤500), `offset`.
+- `GET /stats` — `{ active, removed, total }` counts.
+- `GET /facets` — distinct `{ plaatsen, leerwegen }` for filter dropdowns.
+- `GET /runs` — last 50 scrape runs.
+- `POST /run` — trigger a scrape now.
 
 ## Config
 
-Search query + `CORS_ORIGIN` live in `wrangler.toml` under `[vars]`; the Discord
-webhook is a secret (`wrangler secret put DISCORD_WEBHOOK_URL`).
+Search query + `CORS_ORIGIN` live in `wrangler.toml` under `[vars]`.
 
 ## Develop & deploy
 

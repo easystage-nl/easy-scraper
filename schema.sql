@@ -26,7 +26,6 @@ CREATE TABLE IF NOT EXISTS listings (
   first_seen_at      INTEGER NOT NULL,   -- unix sec, first time we saw it
   last_seen_at       INTEGER NOT NULL,   -- last scrape that contained it
   removed_at         INTEGER,            -- nulled until it disappears
-  notified_at        INTEGER,            -- when Discord was pinged (NULL = first run / suppressed)
 
   raw_json           TEXT NOT NULL
 );
@@ -36,8 +35,7 @@ CREATE INDEX IF NOT EXISTS idx_listings_crebocode  ON listings(crebocode);
 CREATE INDEX IF NOT EXISTS idx_listings_plaats     ON listings(plaats);
 CREATE INDEX IF NOT EXISTS idx_listings_active     ON listings(removed_at) WHERE removed_at IS NULL;
 
--- One row per scrape execution. Used for the "is this the first run?" check
--- (so we don't flood Discord on initial deploy) and as a basis for later viz.
+-- One row per scrape execution. Basis for run history / later viz.
 CREATE TABLE IF NOT EXISTS scrape_runs (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   started_at      INTEGER NOT NULL,
@@ -46,7 +44,6 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
   total_count     INTEGER,
   new_count       INTEGER,
   removed_count   INTEGER,
-  notified_count  INTEGER,
   error           TEXT
 );
 

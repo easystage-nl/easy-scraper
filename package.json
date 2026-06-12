@@ -1,20 +1,20 @@
 {
-  "name": "easy-stage",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "tail": "wrangler tail",
-    "db:init": "wrangler d1 execute stagemarkt --remote --file=./schema.sql",
-    "db:init:local": "wrangler d1 execute stagemarkt --local --file=./schema.sql",
-    "db:query": "wrangler d1 execute stagemarkt --remote --command",
-    "db:query:local": "wrangler d1 execute stagemarkt --local --command",
-    "trigger:local": "curl -s 'http://localhost:8787/__scheduled?cron=*/10+*+*+*+*'"
-  },
-  "devDependencies": {
-    "@cloudflare/workers-types": "^4.20251001.0",
-    "typescript": "^5.6.0",
-    "wrangler": "^3.80.0"
-  }
+    "name": "easy-stage",
+    "version": "0.1.0",
+    "private": true,
+    "scripts": {
+        "dev": "wrangler dev",
+        "deploy": "wrangler deploy",
+        "tail": "wrangler tail",
+        "db:init": "wrangler d1 execute stagemarkt --remote --file=./schema.sql",
+        "db:init:local": "wrangler d1 execute stagemarkt --local --file=./schema.sql",
+        "db:query": "wrangler d1 execute stagemarkt --remote --command",
+        "db:query:local": "wrangler d1 execute stagemarkt --local --command",
+        "trigger:local": "curl -s 'http://localhost:8787/__scheduled?cron=*/10+*+*+*+*'"
+    },
+    "devDependencies": {
+        "@cloudflare/workers-types": "^4.20251001.0",
+        "typescript": "^5.6.0",
+        "wrangler": "^3.80.0"
+    }
 }

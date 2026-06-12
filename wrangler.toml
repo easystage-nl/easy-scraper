@@ -20,16 +20,14 @@ database_name = "stagemarkt"
 database_id = "5018a4a1-39ab-49b0-ac33-549f5b766031"
 
 # Search query + runtime config. Edit and redeploy to track a different query.
+# Empty NIVEAU + CREBOCODE = all studies, all levels (capped at the nearest
+# 10 000 listings around PLAATS_POSTCODE — upstream deep-pagination limit).
 [vars]
 SITE_ID         = "STAGEMARKT"
-NIVEAU          = "4"
+NIVEAU          = ""               # "" = all MBO levels (1-4)
 TYPE            = "1"
-RANGE_KM        = "1000"
-CREBOCODE       = "25998"          # Software developer
+RANGE_KM        = "3000"
+CREBOCODE       = ""               # "" = all studies (was 25998 = software dev)
 PLAATS_POSTCODE = "Warnsveld"
-BUITENLAND      = "false"
-DISCORD_COLOR   = "5793266"        # decimal; 0x5865F2 = blurple
-CORS_ORIGIN     = "https://easystage.nl"
-
-# Secrets (set via `wrangler secret put`):
-#   DISCORD_WEBHOOK_URL — full webhook URL incl. /api/webhooks/<id>/<token>
+BUITENLAND      = "true"
+CORS_ORIGIN     = "https://easystage.nl,http://localhost:5173"

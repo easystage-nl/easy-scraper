@@ -1,15 +1,11 @@
 import type { Env, SearchQuery } from "./types";
 import { searchEducations } from "./stagemarkt";
 import {
-  isFirstRun,
   startRun,
   finishRun,
   upsertListings,
   markRemoved,
-  fetchUnnotified,
-  markNotified,
 } from "./db";
-import { postBatch, delayBetweenBatches, MAX_EMBEDS_PER_MSG } from "./discord";
 
 function buildQuery(env: Env): SearchQuery {
   return {
@@ -27,42 +23,18 @@ async function runScrape(env: Env): Promise<{ summary: string }> {
   const now = Math.floor(Date.now() / 1000);
   const query = buildQuery(env);
   const queryJson = JSON.stringify(query);
-  const firstRun = await isFirstRun(env.stagemarkt);
   const runId = await startRun(env.stagemarkt, now, queryJson);
 
   try {
     const res = await searchEducations(query);
     const items = res.items ?? [];
 
-    const newIds = await upsertListings(env.stagemarkt, items, now, firstRun);
+    const newIds = await upsertListings(env.stagemarkt, items, now);
     const removedIds = await markRemoved(
       env.stagemarkt,
       items.map((i) => i.leerplaatsId),
       now,
     );
-
-    let notifiedCount = 0;
-    if (!firstRun) {
-      const unnotified = await fetchUnnotified(env.stagemarkt);
-      if (unnotified.length > 0 && env.DISCORD_WEBHOOK_URL) {
-        const color = parseInt(env.DISCORD_COLOR, 10) || 5793266;
-        for (let i = 0; i < unnotified.length; i += MAX_EMBEDS_PER_MSG) {
-          const batch = unnotified.slice(i, i + MAX_EMBEDS_PER_MSG);
-          await postBatch(env.DISCORD_WEBHOOK_URL, batch, color);
-          // Mark this batch immediately — if a later batch 429s and throws,
-          // we don't lose the work that already succeeded.
-          await markNotified(
-            env.stagemarkt,
-            batch.map((l) => l.leerplaatsId),
-            Math.floor(Date.now() / 1000),
-          );
-          notifiedCount += batch.length;
-          if (i + MAX_EMBEDS_PER_MSG < unnotified.length) {
-            await delayBetweenBatches();
-          }
-        }
-      }
-    }
 
     await finishRun(
       env.stagemarkt,
@@ -71,18 +43,16 @@ async function runScrape(env: Env): Promise<{ summary: string }> {
       res.totalCount,
       newIds.length,
       removedIds.length,
-      notifiedCount,
       null,
     );
 
     const summary =
-      `total=${res.totalCount} new=${newIds.length} removed=${removedIds.length} ` +
-      `notified=${notifiedCount} firstRun=${firstRun}`;
+      `total=${res.totalCount} new=${newIds.length} removed=${removedIds.length}`;
     console.log(summary);
     return { summary };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await finishRun(env.stagemarkt, runId, Math.floor(Date.now() / 1000), 0, 0, 0, 0, msg);
+    await finishRun(env.stagemarkt, runId, Math.floor(Date.now() / 1000), 0, 0, 0, msg);
     console.error("scrape failed:", msg);
     throw err;
   }
@@ -99,13 +69,22 @@ export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
 
-    // CORS: the dashboard is served from a different origin. Allow the
-    // configured origin (CORS_ORIGIN), defaulting to "*" for the public
-    // read-only endpoints.
+    // CORS: the dashboard is served from a different origin. CORS_ORIGIN is a
+    // comma-separated allowlist (e.g. prod + localhost dev); we echo back the
+    // request's Origin when it matches. Unset / "*" allows any origin.
+    const allowed = (env.CORS_ORIGIN ?? "*").split(",").map((s) => s.trim());
+    const reqOrigin = req.headers.get("Origin");
+    const allowOrigin =
+      allowed.includes("*")
+        ? "*"
+        : reqOrigin && allowed.includes(reqOrigin)
+          ? reqOrigin
+          : allowed[0] ?? "*";
     const cors = {
-      "Access-Control-Allow-Origin": env.CORS_ORIGIN ?? "*",
+      "Access-Control-Allow-Origin": allowOrigin,
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
+      Vary: "Origin",
     };
     const json = (body: unknown) =>
       new Response(JSON.stringify(body), {
@@ -121,21 +100,94 @@ export default {
       return json(result);
     }
 
+    // Server-side filtered + paginated listings. Returns { items, total } so
+    // the dashboard never has to pull the whole table into the browser.
     if (url.pathname === "/listings") {
-      const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "1000", 10), 5000);
-      const onlyActive = url.searchParams.get("active") !== "false";
-      const where = onlyActive ? "WHERE removed_at IS NULL" : "";
-      const rows = await env.stagemarkt.prepare(
-        `SELECT leerplaats_id, titel, wervende_titel, org_naam, org_logo_url,
-                plaats, postcode, leerweg, startdatum, dagen_per_week,
-                lat, lon, first_seen_at, last_seen_at, removed_at
-           FROM listings ${where}
-           ORDER BY first_seen_at DESC
-           LIMIT ?`,
-      )
-        .bind(limit)
+      const p = url.searchParams;
+      const limit = Math.min(Math.max(parseInt(p.get("limit") ?? "100", 10) || 100, 1), 500);
+      const offset = Math.max(parseInt(p.get("offset") ?? "0", 10) || 0, 0);
+      const status = p.get("status") ?? "active"; // active | removed | all
+      const q = (p.get("q") ?? "").trim();
+      const plaats = (p.get("plaats") ?? "").trim();
+      const leerweg = (p.get("leerweg") ?? "").trim();
+      const sort = p.get("sort") ?? "newest";
+
+      const where: string[] = [];
+      const args: unknown[] = [];
+      if (status === "active") where.push("removed_at IS NULL");
+      else if (status === "removed") where.push("removed_at IS NOT NULL");
+      if (plaats) {
+        where.push("plaats = ?");
+        args.push(plaats);
+      }
+      if (leerweg) {
+        where.push("leerweg = ?");
+        args.push(leerweg);
+      }
+      if (q) {
+        where.push("(titel LIKE ? OR wervende_titel LIKE ? OR org_naam LIKE ?)");
+        const like = `%${q}%`;
+        args.push(like, like, like);
+      }
+      const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+      const orderSql =
+        sort === "recent"
+          ? "ORDER BY last_seen_at DESC"
+          : sort === "title"
+            ? "ORDER BY COALESCE(NULLIF(wervende_titel, ''), titel) COLLATE NOCASE ASC"
+            : "ORDER BY first_seen_at DESC";
+
+      const totalRow = await env.stagemarkt
+        .prepare(`SELECT COUNT(*) AS c FROM listings ${whereSql}`)
+        .bind(...args)
+        .first<{ c: number }>();
+
+      const rows = await env.stagemarkt
+        .prepare(
+          `SELECT leerplaats_id, titel, wervende_titel, org_naam, org_logo_url,
+                  plaats, postcode, leerweg, startdatum, dagen_per_week,
+                  lat, lon, first_seen_at, last_seen_at, removed_at
+             FROM listings ${whereSql} ${orderSql}
+             LIMIT ? OFFSET ?`,
+        )
+        .bind(...args, limit, offset)
         .all();
-      return json(rows.results ?? []);
+
+      return json({ items: rows.results ?? [], total: totalRow?.c ?? 0 });
+    }
+
+    // Unfiltered counts for the header.
+    if (url.pathname === "/stats") {
+      const row = await env.stagemarkt
+        .prepare(
+          `SELECT COUNT(*) AS total,
+                  SUM(CASE WHEN removed_at IS NULL THEN 1 ELSE 0 END) AS active
+             FROM listings`,
+        )
+        .first<{ total: number; active: number }>();
+      const total = row?.total ?? 0;
+      const active = row?.active ?? 0;
+      return json({ total, active, removed: total - active });
+    }
+
+    // Distinct values for the filter dropdowns.
+    if (url.pathname === "/facets") {
+      const [plaatsen, leerwegen] = await Promise.all([
+        env.stagemarkt
+          .prepare(
+            "SELECT DISTINCT plaats FROM listings WHERE plaats IS NOT NULL AND plaats <> '' ORDER BY plaats COLLATE NOCASE",
+          )
+          .all<{ plaats: string }>(),
+        env.stagemarkt
+          .prepare(
+            "SELECT DISTINCT leerweg FROM listings WHERE leerweg IS NOT NULL AND leerweg <> '' ORDER BY leerweg COLLATE NOCASE",
+          )
+          .all<{ leerweg: string }>(),
+      ]);
+      return json({
+        plaatsen: (plaatsen.results ?? []).map((r) => r.plaats),
+        leerwegen: (leerwegen.results ?? []).map((r) => r.leerweg),
+      });
     }
 
     if (url.pathname === "/runs") {

@@ -8,12 +8,10 @@ export interface Env {
   CREBOCODE: string;
   PLAATS_POSTCODE: string;
   BUITENLAND: string;
-  DISCORD_COLOR: string;
 
-  // Optional: restrict CORS to the dashboard origin. Defaults to "*".
+  // Optional: restrict CORS to the dashboard origin(s), comma-separated.
+  // Defaults to "*".
   CORS_ORIGIN?: string;
-
-  DISCORD_WEBHOOK_URL: string;
 }
 
 export interface SearchQuery {
