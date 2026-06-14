@@ -35,6 +35,16 @@ CREATE INDEX IF NOT EXISTS idx_listings_crebocode  ON listings(crebocode);
 CREATE INDEX IF NOT EXISTS idx_listings_plaats     ON listings(plaats);
 CREATE INDEX IF NOT EXISTS idx_listings_active     ON listings(removed_at) WHERE removed_at IS NULL;
 
+-- Crebocode → human-readable opleiding name, sourced from stagemarkt's
+-- opleiding-suggesties endpoint. listings.crebocode joins here so the dashboard
+-- can filter/label by study program instead of an opaque numeric code.
+CREATE TABLE IF NOT EXISTS opleidingen (
+  crebocode  TEXT PRIMARY KEY,
+  label      TEXT NOT NULL,
+  niveaunaam TEXT,
+  updated_at INTEGER NOT NULL
+);
+
 -- One row per scrape execution. Basis for run history / later viz.
 CREATE TABLE IF NOT EXISTS scrape_runs (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,

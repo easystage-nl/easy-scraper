@@ -9,9 +9,17 @@ routes = [
   { pattern = "api.easystage.nl", custom_domain = true },
 ]
 
-# Poll every 10 min (matches the upstream Front-Door s-maxage=600).
+# Full national sweep once an hour: ~540 upstream queries (one per study),
+# streamed into D1. See index.ts for why it's per-study (the broad query is
+# capped at the nearest 10 000 listings).
 [triggers]
-crons = ["*/10 * * * *"]
+crons = ["0 * * * *"]
+
+# Raise the per-invocation CPU ceiling above the 30s default for headroom on the
+# first backfill (~140k row writes). Requires the Workers Paid plan — as does
+# the D1 write volume of that backfill (over Free's 100k rows/day).
+[limits]
+cpu_ms = 120000
 
 # D1 — create once with `wrangler d1 create stagemarkt`, then paste the id here.
 [[d1_databases]]
@@ -20,14 +28,16 @@ database_name = "stagemarkt"
 database_id = "5018a4a1-39ab-49b0-ac33-549f5b766031"
 
 # Search query + runtime config. Edit and redeploy to track a different query.
-# Empty NIVEAU + CREBOCODE = all studies, all levels (capped at the nearest
-# 10 000 listings around PLAATS_POSTCODE — upstream deep-pagination limit).
+# The scraper sweeps every crebocode from the opleidingen lookup, so CREBOCODE
+# here is ignored (the per-study sweep overrides it). RANGE_KM is wide enough to
+# cover the whole country from PLAATS_POSTCODE; each per-study query stays under
+# the upstream 10 000-result cap, so coverage is complete.
 [vars]
 SITE_ID         = "STAGEMARKT"
 NIVEAU          = ""               # "" = all MBO levels (1-4)
 TYPE            = "1"
 RANGE_KM        = "3000"
-CREBOCODE       = ""               # "" = all studies (was 25998 = software dev)
+CREBOCODE       = ""               # ignored — sweep covers every study
 PLAATS_POSTCODE = "Warnsveld"
 BUITENLAND      = "true"
 CORS_ORIGIN     = "https://easystage.nl,http://localhost:5173"

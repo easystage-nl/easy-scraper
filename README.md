@@ -1,7 +1,19 @@
 # easy-scraper
 
-Cloudflare Worker that polls **stagemarkt.nl** every 10 min for a fixed search
-query and stores listings in D1.
+Cloudflare Worker that scrapes **stagemarkt.nl** and stores every MBO internship
+listing in D1.
+
+A single broad query is capped by upstream at the 10 000 listings nearest a
+postcode, so instead the worker sweeps **per study (crebocode)** — each study
+stays under that cap, and the union is the full national set (~470 studies /
+~140k listings). The hourly cron runs one query per study (~540 calls),
+streaming each study's listings straight into D1 and discarding them, so the
+full set is never held in memory at once. Removals are reconciled against the
+whole table after a completed sweep.
+
+> **Requires the Workers Paid + D1 Paid plans.** The initial backfill writes
+> ~140k rows (over Free D1's 100k/day) and the per-run CPU exceeds the Free
+> 10 ms limit. See `[limits] cpu_ms` in `wrangler.toml`.
 
 The JSON API is deployed to `api.easystage.nl`. The dashboard frontend is a
 separate worker on `easystage.nl` — see [`easy-dash`](https://github.com/easystage-nl/easy-dash).
@@ -15,11 +27,12 @@ Reverse-engineered API notes: [`reversal/README.md`](reversal/README.md).
 - `GET /stats` — `{ active, removed, total }` counts.
 - `GET /facets` — distinct `{ plaatsen, leerwegen }` for filter dropdowns.
 - `GET /runs` — last 50 scrape runs.
-- `POST /run` — trigger a scrape now.
+- `POST /run` — trigger a full scrape now (synchronous; first backfill ~30-60s).
 
 ## Config
 
-Search query + `CORS_ORIGIN` live in `wrangler.toml` under `[vars]`.
+Query params + `CORS_ORIGIN` live in `wrangler.toml` under `[vars]`; `CREBOCODE`
+there is ignored (the sweep covers every study).
 
 ## Develop & deploy
 
