@@ -129,7 +129,7 @@ export default {
 
   // HTTP fetch handler — JSON API consumed by the easy-dash SPA (separate
   // origin), plus the manual /run trigger.
-  async fetch(req: Request, env: Env): Promise<Response> {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
 
     // CORS: the dashboard is served from a different origin. CORS_ORIGIN is a
@@ -157,6 +157,39 @@ export default {
     if (req.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: cors });
     }
+
+    // Edge + browser caching for the read-only GET endpoints. Their data only
+    // changes when the hourly scrape writes, so seconds-to-minutes of staleness
+    // is harmless and avoids recomputing on every visit (e.g. /facets is ~1.2s
+    // over 146k rows). The cache key is the full URL — so each filter combo
+    // caches independently — and Vary: Origin keeps per-origin CORS correct.
+    const CACHE_TTL: Record<string, number> = {
+      "/facets": 300,
+      "/stats": 120,
+      "/runs": 60,
+      "/listings": 60,
+    };
+    const ttl = req.method === "GET" ? CACHE_TTL[url.pathname] ?? 0 : 0;
+    const cache = caches.default;
+    if (ttl > 0) {
+      const hit = await cache.match(req);
+      if (hit) return hit;
+    }
+    // Build a JSON response that browsers and the edge may cache, and store it
+    // at the edge (via waitUntil so caching never delays the response). Browser
+    // max-age is capped at 60s for fresher local navigation; the edge holds it
+    // for the full ttl and may serve stale while revalidating.
+    const cached = (body: unknown) => {
+      const res = new Response(JSON.stringify(body), {
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": `public, max-age=${Math.min(ttl, 60)}, s-maxage=${ttl}, stale-while-revalidate=${ttl}`,
+          ...cors,
+        },
+      });
+      ctx.waitUntil(cache.put(req, res.clone()));
+      return res;
+    };
 
     // Trigger a full scrape now (same work the hourly cron does). Synchronous:
     // returns the run summary, so the first backfill call may take ~30-60s.
@@ -235,7 +268,7 @@ export default {
         .bind(...args, limit, offset)
         .all();
 
-      return json({ items: rows.results ?? [], total: totalRow?.c ?? 0 });
+      return cached({ items: rows.results ?? [], total: totalRow?.c ?? 0 });
     }
 
     // Unfiltered counts for the header.
@@ -249,7 +282,7 @@ export default {
         .first<{ total: number; active: number }>();
       const total = row?.total ?? 0;
       const active = row?.active ?? 0;
-      return json({ total, active, removed: total - active });
+      return cached({ total, active, removed: total - active });
     }
 
     // Distinct values for the filter dropdowns.
@@ -278,7 +311,7 @@ export default {
           )
           .all<{ crebocode: string; label: string; count: number }>(),
       ]);
-      return json({
+      return cached({
         plaatsen: (plaatsen.results ?? []).map((r) => r.plaats),
         leerwegen: (leerwegen.results ?? []).map((r) => r.leerweg),
         opleidingen: opleidingen.results ?? [],
@@ -289,7 +322,7 @@ export default {
       const rows = await env.stagemarkt.prepare(
         "SELECT * FROM scrape_runs ORDER BY started_at DESC LIMIT 50",
       ).all();
-      return json(rows.results ?? []);
+      return cached(rows.results ?? []);
     }
 
     return new Response("not found", { status: 404, headers: cors });
